@@ -630,8 +630,7 @@ class _PlayerState extends State<Player> with TickerProviderStateMixin {
                                       playbackIndicator = MultiProvider(
                                         key: const Key("ready"),
                                         providers: [
-                                          StreamProvider(
-                                              create: (_) => currentMusic.positionStream, initialData: currentMusic.position),
+                                          StreamProvider(create: (_) => currentMusic.positionStream, initialData: currentMusic.position),
                                           StreamProvider(create: (_) => currentMusic.isPlayingStream, initialData: currentMusic.isPlaying),
                                         ],
                                         builder: (context, snapshot) => Consumer2<bool, Duration>(
@@ -651,7 +650,7 @@ class _PlayerState extends State<Player> with TickerProviderStateMixin {
                                                 child: FloatingActionButton(
                                                   heroTag: currentMusic.playing,
                                                   onPressed: () {
-                                                    if (currentMusic.playing) {
+                                                    if (currentMusic.isPlaying) {
                                                       currentMusic.pause();
                                                       playPauseAnim.reverse();
                                                     } else {
