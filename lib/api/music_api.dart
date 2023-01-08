@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:developer';
 
 import 'package:cbor/simple.dart';
+import 'package:hive/hive.dart';
 import 'package:tearmusic/api/base_api.dart';
 import 'package:http/http.dart' as http;
 import 'package:tearmusic/exceptionts.dart';
@@ -60,14 +61,14 @@ class MusicApi {
     return SearchResults.decode(jsonDecode(res.body));
   }
 
-  Future<PlaylistDetails> playlistTracks(String playlistId) async {
+  Future<PlaylistDetails> playlistDetails(String playlistId) async {
     final res = await http.get(
       Uri.parse("$baseUrl/music/playlist-tracks?id=${Uri.encodeComponent(playlistId)}"),
       headers: {"authorization": await base.getToken()},
     );
 
-    _reschk(res, "playlistTracks");
-    return PlaylistDetails.decode(jsonDecode(res.body));
+    _reschk(res, "playlistDetails");
+    return PlaylistDetails.decode(jsonDecode(res.body), playlistId);
   }
 
   Future<List<MusicTrack>> albumTracks(String albumId, {MusicAlbum? album}) async {
@@ -140,21 +141,7 @@ class MusicApi {
 
     _reschk(res, "artistDetails");
 
-    final json = jsonDecode(res.body);
-    final related = (json['artists'] as List).cast<Map>();
-    final tracks = (json['tracks'] as List).cast<Map>();
-    final albumsJson = (json['albums'] as List).cast<Map>();
-
-    List<MusicAlbum> albums = MusicAlbum.decodeList(albumsJson);
-    albums.sort((a, b) => b.releaseDate.compareTo(a.releaseDate));
-
-    return ArtistDetails(
-      artist: MusicArtist.decode(json['artist']),
-      tracks: MusicTrack.decodeList(tracks),
-      albums: albums.where((e) => e.artists.first == artist).toList(),
-      appearsOn: albums.where((e) => e.artists.first != artist).toList(),
-      related: MusicArtist.decodeList(related),
-    );
+    return ArtistDetails.decode(jsonDecode(res.body));
   }
 
   Future<MusicLyrics> lyrics(MusicTrack track) async {
@@ -244,10 +231,13 @@ class MusicApi {
   }
 
   Future<BatchLibrary> libraryBatch(LibraryType type, {int limit = 10, int offset = 0}) async {
+    Stopwatch w = Stopwatch()..start();
     final res = await http.get(
       Uri.parse("$baseUrl/music/batch-library?limit=$limit&offset=$offset&type=${Uri.encodeComponent(type.name)}"),
       headers: {"authorization": await base.getToken()},
     );
+
+    print("got library in ${w.elapsed}");
 
     _reschk(res, "libraryBatch");
 

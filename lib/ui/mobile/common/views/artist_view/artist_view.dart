@@ -7,12 +7,15 @@ import 'package:intl/intl.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:modal_bottom_sheet/modal_bottom_sheet.dart';
 import 'package:provider/provider.dart';
+import 'package:tearmusic/models/library.dart';
 import 'package:tearmusic/models/music/album.dart';
 import 'package:tearmusic/models/music/artist.dart';
 import 'package:tearmusic/models/music/track.dart';
+import 'package:tearmusic/models/storage/cached_item.dart';
 import 'package:tearmusic/providers/music_info_provider.dart';
 import 'package:tearmusic/providers/navigator_provider.dart';
 import 'package:tearmusic/providers/theme_provider.dart';
+import 'package:tearmusic/providers/user_provider.dart';
 import 'package:tearmusic/ui/common/image_color.dart';
 import 'package:tearmusic/ui/mobile/common/knob.dart';
 import 'package:tearmusic/ui/mobile/common/tiles/artist_album_tile.dart';
@@ -44,7 +47,7 @@ class ArtistView extends StatefulWidget {
 }
 
 class _ArtistViewState extends State<ArtistView> {
-  Future<ArtistDetails> artistDetails(MusicInfoProvider musicInfo) async {
+  /*Future<ArtistDetails> artistDetails(MusicInfoProvider musicInfo) async {
     final details = await musicInfo.artistDetails(widget.artist);
     if (image == null) {
       image = CachedImage(details.artist.images);
@@ -56,7 +59,7 @@ class _ArtistViewState extends State<ArtistView> {
       });
     }
     return details;
-  }
+  }*/
 
   Future<ThemeData?> getTheme(CachedImage image) async {
     final bytes = await image.getImage(const Size.square(350));
@@ -65,36 +68,42 @@ class _ArtistViewState extends State<ArtistView> {
       final colors = generateColorPalette(bytes);
       return ThemeProvider.coloredTheme(colors[1]);
     }
-
     return null;
   }
 
-  CachedImage? image;
+  late CachedImage image;
   final theme = Completer<ThemeData>();
+
+  CachedItem<ArtistDetails?>? artistResult;
 
   @override
   void initState() {
     super.initState();
 
+    context.read<MusicInfoProvider>().artistDetails(widget.artist).listen((value) {
+      artistResult = value;
+      if (mounted) setState(() {});
+    });
+
     if (widget.artist.images != null) {
       image = CachedImage(widget.artist.images);
-      getTheme(image!).then((value) {
+      getTheme(image).then((value) {
         if (value != null) {
           if (mounted) context.read<ThemeProvider>().tempNavTheme(value);
+          theme.complete(value);
         }
-        theme.complete(value);
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final musicInfo = context.read<MusicInfoProvider>();
+    //final musicInfo = context.read<MusicInfoProvider>();
 
-    return FutureBuilder<List<Object>>(
-      future: Future.wait([theme.future, artistDetails(musicInfo)]),
+    return FutureBuilder<ThemeData>(
+      future: theme.future,
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+        if (artistResult?.item == null) {
           return Scaffold(
             body: Center(
               child: LoadingAnimationWidget.staggeredDotsWave(
@@ -105,8 +114,7 @@ class _ArtistViewState extends State<ArtistView> {
           );
         }
 
-        final theme = snapshot.data![0] as ThemeData;
-        final details = snapshot.data![1] as ArtistDetails;
+        final theme = snapshot.data!;
 
         return Theme(
           data: theme,
@@ -140,7 +148,7 @@ class _ArtistViewState extends State<ArtistView> {
                             children: [
                               LayoutBuilder(builder: (context, size) {
                                 return CachedImage(
-                                  details.artist.images!,
+                                  artistResult!.item!.artist.images!,
                                   size: size.biggest,
                                 );
                               }),
@@ -163,24 +171,11 @@ class _ArtistViewState extends State<ArtistView> {
                                 ),
                               ),
                               Text(
-                                  "${NumberFormat.compact().format(widget.artist.followers > 0 ? widget.artist.followers : details.artist.followers)} followers"),
+                                  "${NumberFormat.compact().format(widget.artist.followers > 0 ? widget.artist.followers : artistResult!.item!.artist.followers)} followers"),
                             ],
                           ),
                         ),
                       ),
-                      if (!snapshot.hasData)
-                        SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.only(top: 64.0),
-                            child: Align(
-                              alignment: Alignment.topCenter,
-                              child: LoadingAnimationWidget.staggeredDotsWave(
-                                color: theme.colorScheme.secondary.withOpacity(.2),
-                                size: 64.0,
-                              ),
-                            ),
-                          ),
-                        ),
                       // if (snapshot.hasData)
                       //   SliverToBoxAdapter(
                       //     child: Row(
@@ -196,18 +191,40 @@ class _ArtistViewState extends State<ArtistView> {
                       //       ],
                       //     ),
                       //   ),
-                      if (snapshot.hasData && details.albums.isNotEmpty)
+                      if (artistResult!.item!.albums.isNotEmpty)
                         SliverPadding(
                           padding: const EdgeInsets.only(top: 12.0, left: 16.0, right: 16.0),
                           sliver: SliverToBoxAdapter(
                             child: Row(
                               children: [
-                                Expanded(
-                                  child: ArtistHeaderButton(
-                                    onPressed: () {},
-                                    icon: const Icon(CupertinoIcons.heart),
-                                    child: Text("Follow".toUpperCase()),
-                                  ),
+                                Selector<UserProvider, List<String>>(
+                                  selector: (_, p) => p.library?.liked_artists ?? [],
+                                  shouldRebuild: (previous, next) {
+                                    final albumid = widget.artist.id;
+                                    return previous.any((e) => e == albumid) != next.any((e) => e == albumid);
+                                  },
+                                  builder: (context, data, _) {
+                                    final isLiked = data.contains(widget.artist.id);
+
+                                    return Expanded(
+                                      child: ArtistHeaderButton(
+                                        onPressed: () {
+                                          if (!isLiked) {
+                                            context.read<UserProvider>().putLibrary(widget.artist, LibraryType.liked_artists);
+                                          } else {
+                                            context.read<UserProvider>().removeFromLibrary(widget.artist, LibraryType.liked_artists);
+                                          }
+                                          print("done");
+                                        },
+                                        icon: isLiked
+                                            ? const Icon(CupertinoIcons.heart_fill)
+                                            : const Icon(
+                                                CupertinoIcons.heart,
+                                              ),
+                                        child: Text("Follow".toUpperCase()),
+                                      ),
+                                    );
+                                  },
                                 ),
                                 const SizedBox(width: 12.0),
                                 Expanded(
@@ -221,19 +238,19 @@ class _ArtistViewState extends State<ArtistView> {
                             ),
                           ),
                         ),
-                      if (snapshot.hasData && details.albums.isNotEmpty)
+                      if (artistResult!.item!.albums.isNotEmpty)
                         SliverPadding(
                           padding: const EdgeInsets.all(12.0),
                           sliver: SliverToBoxAdapter(
                             child: LatestRelease(
-                              details.albums.first,
+                              artistResult!.item!.albums.first,
                               then: () {
                                 context.read<ThemeProvider>().tempNavTheme(theme);
                               },
                             ),
                           ),
                         ),
-                      if (snapshot.hasData && details.tracks.isNotEmpty)
+                      if (artistResult!.item!.tracks.isNotEmpty)
                         SliverToBoxAdapter(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 12.0),
@@ -251,37 +268,39 @@ class _ArtistViewState extends State<ArtistView> {
                                             style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16.0),
                                           ),
                                         ),
-                                        TextButton(
-                                          onPressed: () {
-                                            Navigator.of(context).push(CupertinoPageRoute(
-                                              builder: (context) => Theme(
-                                                data: theme,
-                                                child: ContentListView<MusicTrack>(
-                                                  itemBuilder: (context, item) => ArtistTrackTile(item),
-                                                  retriever: () async => details.tracks,
-                                                  loadingWidget: const TrackLoadingTile(itemCount: 8),
-                                                  title: Text(
-                                                    "Top Songs by ${widget.artist.name}",
-                                                    style: const TextStyle(
-                                                      fontWeight: FontWeight.w500,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ));
-                                          },
-                                          child: const Text("Show All"),
-                                        ),
+                                        // TextButton(
+                                        //   onPressed: () {
+                                        //     Navigator.of(context).push(CupertinoPageRoute(
+                                        //       builder: (context) => Theme(
+                                        //         data: theme,
+                                        //         child: ContentListView<MusicTrack>(
+                                        //           itemBuilder: (context, item) => ArtistTrackTile(item),
+                                        //           retriever: () => [],
+                                        //           loadingWidget: const TrackLoadingTile(itemCount: 8),
+                                        //           title: Text(
+                                        //             "Top Songs by ${widget.artist.name}",
+                                        //             style: const TextStyle(
+                                        //               fontWeight: FontWeight.w500,
+                                        //             ),
+                                        //           ),
+                                        //         ),
+                                        //       ),
+                                        //     ));
+                                        //   },
+                                        //   child: const Text("Show All"),
+                                        // ),
                                       ],
                                     ),
                                   ),
-                                  ...details.tracks.sublist(0, math.min(details.tracks.length, 5)).map((e) => ArtistTrackTile(e)),
+                                  ...artistResult!.item!.tracks
+                                      .sublist(0, math.min(artistResult!.item!.tracks.length, 5))
+                                      .map((e) => ArtistTrackTile(e)),
                                 ],
                               ),
                             ),
                           ),
                         ),
-                      if (snapshot.hasData && details.albums.any((e) => e.albumType != AlbumType.single))
+                      if (artistResult!.item!.albums.any((e) => e.albumType != AlbumType.single))
                         SliverToBoxAdapter(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -299,7 +318,7 @@ class _ArtistViewState extends State<ArtistView> {
                                   scrollDirection: Axis.horizontal,
                                   children: [
                                     const SizedBox(width: 16.0),
-                                    ...details.albums.where((e) => e.albumType != AlbumType.single).map((e) => Padding(
+                                    ...artistResult!.item!.albums.where((e) => e.albumType != AlbumType.single).map((e) => Padding(
                                           padding: const EdgeInsets.only(right: 12.0),
                                           child: ArtistAlbumTile(e, then: () => context.read<ThemeProvider>().tempNavTheme(theme)),
                                         )),
@@ -310,7 +329,7 @@ class _ArtistViewState extends State<ArtistView> {
                             ],
                           ),
                         ),
-                      if (snapshot.hasData && details.albums.any((e) => e.albumType == AlbumType.single))
+                      if (artistResult!.item!.albums.any((e) => e.albumType == AlbumType.single))
                         SliverToBoxAdapter(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -328,7 +347,7 @@ class _ArtistViewState extends State<ArtistView> {
                                   scrollDirection: Axis.horizontal,
                                   children: [
                                     const SizedBox(width: 16.0),
-                                    ...details.albums.where((e) => e.albumType == AlbumType.single).map((e) => Padding(
+                                    ...artistResult!.item!.albums.where((e) => e.albumType == AlbumType.single).map((e) => Padding(
                                           padding: const EdgeInsets.only(right: 12.0),
                                           child: ArtistAlbumTile.small(e, then: () => context.read<ThemeProvider>().tempNavTheme(theme)),
                                         )),
@@ -339,7 +358,7 @@ class _ArtistViewState extends State<ArtistView> {
                             ],
                           ),
                         ),
-                      if (snapshot.hasData && details.related.isNotEmpty)
+                      if (artistResult!.item!.related.isNotEmpty)
                         SliverToBoxAdapter(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -357,7 +376,7 @@ class _ArtistViewState extends State<ArtistView> {
                                   scrollDirection: Axis.horizontal,
                                   children: [
                                     const SizedBox(width: 16.0),
-                                    ...details.related.map((e) => Padding(
+                                    ...artistResult!.item!.related.map((e) => Padding(
                                           padding: const EdgeInsets.only(right: 12.0),
                                           child: ArtistArtistTile(e, then: () => context.read<ThemeProvider>().tempNavTheme(theme)),
                                         )),
@@ -368,7 +387,7 @@ class _ArtistViewState extends State<ArtistView> {
                             ],
                           ),
                         ),
-                      if (snapshot.hasData && details.appearsOn.isNotEmpty)
+                      if (artistResult!.item!.appearsOn.isNotEmpty)
                         SliverToBoxAdapter(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -386,7 +405,7 @@ class _ArtistViewState extends State<ArtistView> {
                                   scrollDirection: Axis.horizontal,
                                   children: [
                                     const SizedBox(width: 16.0),
-                                    ...details.appearsOn.map((e) => Padding(
+                                    ...artistResult!.item!.appearsOn.map((e) => Padding(
                                           padding: const EdgeInsets.only(right: 12.0),
                                           child: ArtistAlbumTile.small(e, then: () => context.read<ThemeProvider>().tempNavTheme(theme)),
                                         )),

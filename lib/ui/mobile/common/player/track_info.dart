@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:like_button/like_button.dart';
 import 'package:provider/provider.dart';
+import 'package:tearmusic/models/storage/cached_item.dart';
 import 'package:tearmusic/providers/current_music_provider.dart';
 import 'package:tearmusic/providers/theme_provider.dart';
 import 'package:tearmusic/providers/user_provider.dart';
@@ -13,6 +14,7 @@ import 'package:tearmusic/utils.dart';
 class TrackInfo extends StatelessWidget {
   const TrackInfo({
     Key? key,
+    required this.id,
     required this.title,
     required this.artist,
     required this.cp,
@@ -22,6 +24,7 @@ class TrackInfo extends StatelessWidget {
     required this.maxOffset,
   }) : super(key: key);
 
+  final String id;
   final String title;
   final String artist;
 
@@ -113,11 +116,12 @@ class TrackInfo extends StatelessWidget {
                           opacity: opacity,
                           child: Transform.translate(
                             offset: Offset(-100 * (1.0 - cp), 0.0),
-                            child: FutureBuilder(
-                              future: context.read<UserProvider>().getLibrary(),
-                              builder: (context, snapshot) {
-                                final currentMusic = context.read<CurrentMusicProvider>();
-
+                            child: Selector<UserProvider, List<String>>(
+                              selector: (_, p) => p.library?.liked_tracks ?? [],
+                              shouldRebuild: (previous, next) {
+                                return previous.any((e) => e == id) != next.any((e) => e == id);
+                              },
+                              builder: (context, data, _) {
                                 return LikeButton(
                                   padding: const EdgeInsets.only(bottom: 12.0),
                                   bubblesColor: BubblesColor(
@@ -128,9 +132,7 @@ class TrackInfo extends StatelessWidget {
                                     start: Theme.of(context).colorScheme.tertiary,
                                     end: Theme.of(context).colorScheme.tertiary,
                                   ),
-                                  isLiked: snapshot.hasData && currentMusic.playing != null
-                                      ? snapshot.data!.liked_tracks.contains(currentMusic.playing!.id)
-                                      : false,
+                                  isLiked: data.contains(id),
                                   onTap: (isLiked) async {
                                     // context.read<CurrentMusicProvider>().setRating(Rating.newHeartRating(!isLiked));
                                     return !isLiked;

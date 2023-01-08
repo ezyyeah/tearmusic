@@ -19,7 +19,7 @@ class MusicTrack extends Model {
     required this.trackNumber,
     required this.album,
     required this.artists,
-  }) : super(id: id, json: json, key: "$name ${artists.first.name}", type: "track");
+  }) : super(id: id, json: json, key: "$name ${artists.isNotEmpty ? artists.first.name : 'artist'}", type: "track");
 
   factory MusicTrack.decode(Map json, {MusicAlbum? album}) {
     if (album != null) json['album'] = album.json;
@@ -27,12 +27,12 @@ class MusicTrack extends Model {
     return MusicTrack(
       json: json,
       id: json["id"] ?? "",
-      name: json["name"],
-      duration: Duration(milliseconds: json["duration_ms"]),
-      explicit: json["explicit"],
-      trackNumber: json["track_number"],
+      name: json["name"] ?? "",
+      duration: Duration(milliseconds: json["duration_ms"] ?? 0),
+      explicit: json["explicit"] ?? false,
+      trackNumber: json["track_number"] ?? 0,
       album: album ?? (json["album"] != null ? MusicAlbum.decode(json["album"]) : null),
-      artists: json["artists"].map((e) => MusicArtist.decode(e)).toList().cast<MusicArtist>(),
+      artists: (json["artists"] ?? []).map((e) => MusicArtist.decode(e)).toList().cast<MusicArtist>(),
     );
   }
 

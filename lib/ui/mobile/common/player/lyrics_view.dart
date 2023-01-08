@@ -128,10 +128,10 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     return LayoutBuilder(builder: (context, constraints) {
       contentHeight = constraints.maxHeight;
       return Scaffold(
-        body: FutureBuilder<MusicLyrics>(
-          future: context.read<MusicInfoProvider>().lyrics(widget.track),
+        body: StreamBuilder(
+          stream: context.read<MusicInfoProvider>().lyrics(widget.track),
           builder: (context, snapshot) {
-            if (!snapshot.hasData) {
+            if (snapshot.data?.item == null) {
               return Center(
                 child: LoadingAnimationWidget.staggeredDotsWave(
                   color: Theme.of(context).colorScheme.secondary.withOpacity(.2),
@@ -140,54 +140,54 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
               );
             }
 
-            // final dataLength = snapshot.data!.richSync?.length ?? snapshot.data!.subtitle?.length ?? 0;
+            // final dataLength = snapshot.data!.item!.richSync?.length ?? snapshot.data!.item!.subtitle?.length ?? 0;
 
             // if (actives.isEmpty) {
             //   actives = List.generate(dataLength, (index) {
-            //     if (snapshot.data!.richSync != null) {
-            //       final line = snapshot.data!.richSync!.elementAt(index);
+            //     if (snapshot.data!.item!.richSync != null) {
+            //       final line = snapshot.data!.item!.richSync!.elementAt(index);
             //       return List.generate(line.segments.length,
             //           (i) => (line.start + line.segments[i].offset).inMilliseconds / widget.track.duration.inMilliseconds > animation.value);
             //     }
-            //     if (snapshot.data!.subtitle != null) {
-            //       return [animation.value > snapshot.data!.subtitle!.elementAt(index).offset.inMilliseconds / widget.track.duration.inMilliseconds];
+            //     if (snapshot.data!.item!.subtitle != null) {
+            //       return [animation.value > snapshot.data!.item!.subtitle!.elementAt(index).offset.inMilliseconds / widget.track.duration.inMilliseconds];
             //     }
             //     return [false];
             //   });
             // }
 
-            lSub = snapshot.data!.subtitle;
-            lRich = snapshot.data!.richSync;
+            lSub = snapshot.data!.item!.subtitle;
+            lRich = snapshot.data!.item!.richSync;
 
             return Stack(
               children: [
-                if (snapshot.data!.lyricsType != LyricsType.unavailable) const Wallpaper(particleOpacity: .07),
+                if (snapshot.data!.item!.lyricsType != LyricsType.unavailable) const Wallpaper(particleOpacity: .07),
                 CustomScrollView(
                   controller: ModalScrollController.of(context),
                   slivers: [
                     SliverToBoxAdapter(
                       child: SizedBox(height: verticalPadding + MediaQuery.of(context).padding.top),
                     ),
-                    if (snapshot.data!.lyricsType == LyricsType.unavailable)
+                    if (snapshot.data!.item!.lyricsType == LyricsType.unavailable)
                       const SliverToBoxAdapter(
                         child: LyricsUnavailalbe(),
                       ),
-                    if (snapshot.data!.lyricsType == LyricsType.fullText)
+                    if (snapshot.data!.item!.lyricsType == LyricsType.fullText)
                       SliverToBoxAdapter(
-                        child: LyricsFullText(snapshot.data!.fullText!),
+                        child: LyricsFullText(snapshot.data!.item!.fullText!),
                       ),
-                    if (snapshot.data!.lyricsType == LyricsType.subtitle)
+                    if (snapshot.data!.item!.lyricsType == LyricsType.subtitle)
                       SliverList(
                         delegate: SliverChildBuilderDelegate(
-                          childCount: snapshot.data!.subtitle!.length,
-                          subtitleListBuilder(snapshot.data!.subtitle!),
+                          childCount: snapshot.data!.item!.subtitle!.length,
+                          subtitleListBuilder(snapshot.data!.item!.subtitle!),
                         ),
                       ),
-                    if (snapshot.data!.lyricsType == LyricsType.richsync)
+                    if (snapshot.data!.item!.lyricsType == LyricsType.richsync)
                       SliverList(
                         delegate: SliverChildBuilderDelegate(
-                          childCount: snapshot.data!.richSync!.length,
-                          richSyncListBuilder(snapshot.data!.richSync!),
+                          childCount: snapshot.data!.item!.richSync!.length,
+                          richSyncListBuilder(snapshot.data!.item!.richSync!),
                         ),
                       ),
                     SliverToBoxAdapter(
@@ -195,7 +195,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                     ),
                   ],
                 ),
-                if (snapshot.data!.lyricsType != LyricsType.unavailable)
+                if (snapshot.data!.item!.lyricsType != LyricsType.unavailable)
                   Positioned.fill(
                     child: IgnorePointer(
                       child: Container(

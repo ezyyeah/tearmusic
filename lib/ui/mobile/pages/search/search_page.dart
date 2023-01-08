@@ -12,6 +12,8 @@ import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:tearmusic/models/search.dart';
+import 'package:tearmusic/models/storage/cached_item.dart';
+import 'package:tearmusic/models/storage/cached_opacity.dart';
 import 'package:tearmusic/providers/music_info_provider.dart';
 import 'package:tearmusic/providers/navigator_provider.dart';
 import 'package:tearmusic/ui/mobile/common/filter_bar.dart';
@@ -51,7 +53,7 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
   ];
   late List<String> listOrder;
 
-  SearchResults? results;
+  CachedItem<SearchResults?>? results;
   List<SearchSuggestion> suggestions = [];
   List<Result<String>> suggestionResults = [];
   SearchResult result = SearchResult.prepare;
@@ -131,7 +133,7 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
       return;
     }
 
-    results = null;
+    result = SearchResult.loading;
     lastSearchTerm = '';
     setState(() => result = SearchResult.prepare);
 
@@ -163,7 +165,7 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
     lastSearchTerm = input;
 
     if (input == '') {
-      results = null;
+      result = SearchResult.loading;
       suggestionResults = [];
       suggestions = [];
       setState(() => result = SearchResult.prepare);
@@ -172,7 +174,7 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
 
     if (finalize) setState(() => result = SearchResult.loading);
 
-    context.read<MusicInfoProvider>().search(input).then((value) {
+    context.read<MusicInfoProvider>().search(input).listen((value) {
       if (lastSearchTerm != input) return;
       results = value;
       if (finalize) {
@@ -185,7 +187,9 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
 
   void finalizeSearch() {
     log("[S] finalizeSearch");
-    if (results?.isEmpty ?? true) {
+    if (results?.item == null) {
+      setState(() => result = SearchResult.loading);
+    } else if (results!.item!.isEmpty) {
       setState(() => result = SearchResult.empty);
     } else {
       setState(() => result = SearchResult.done);
@@ -455,6 +459,7 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
                           ),
                         );
                       case SearchResult.empty:
+                        print("[results] empty");
                         return noResultsWidget;
                       case SearchResult.loading:
                         return Padding(
@@ -475,178 +480,185 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
                           }
                         });
                         if (results == null) return const SizedBox();
-                        return NotificationListener<ScrollNotification>(
-                          onNotification: (notification) {
-                            // from flutter source
-                            if (notification is ScrollUpdateNotification && !_tabController.indexIsChanging) {
-                              if ((_pageController.page! - _tabController.index).abs() > 1.0) {
-                                _tabController.index = _pageController.page!.floor();
-                              }
-                              _tabController.offset = (_pageController.page! - _tabController.index).clamp(-1.0, 1.0);
-                            } else if (notification is ScrollEndNotification) {
-                              _tabController.index = _pageController.page!.round();
-                              if (!_tabController.indexIsChanging) {
-                                _tabController.offset = (_pageController.page! - _tabController.index).clamp(-1.0, 1.0);
-                              }
-                            }
-                            return false;
-                          },
-                          child: PageView.custom(
-                            controller: _pageController,
-                            childrenDelegate: SliverChildBuilderDelegate(
-                              (BuildContext context, int pageIndex) {
-                                if (pageIndex == 0) {
-                                  return CupertinoScrollbar(
-                                    child: ListView.builder(
-                                      itemCount: 5,
-                                      itemBuilder: (context, index) {
-                                        if (index == 4) {
-                                          return const SizedBox(height: 100);
-                                        }
-
-                                        const topShowCount = 3;
-
-                                        switch (index) {
-                                          case 0:
-                                            return TopResultContainer(
-                                              kind: "Songs",
-                                              icon: CupertinoIcons.music_note_2,
-                                              results: results!.tracks
-                                                  .sublist(0, math.min(results!.tracks.length, topShowCount))
-                                                  .map((e) => SearchTrackTile(e))
-                                                  .toList(),
-                                              index: 1,
-                                              pageController: _pageController,
-                                              tabController: _tabController,
-                                            );
-
-                                          case 1:
-                                            return TopResultContainer(
-                                              kind: "Albums",
-                                              icon: CupertinoIcons.music_albums,
-                                              results: results!.albums
-                                                  .sublist(0, math.min(results!.albums.length, topShowCount))
-                                                  .map((e) => SearchAlbumTile(e))
-                                                  .toList(),
-                                              index: 2,
-                                              pageController: _pageController,
-                                              tabController: _tabController,
-                                            );
-
-                                          case 2:
-                                            return TopResultContainer(
-                                              kind: "Playlists",
-                                              icon: CupertinoIcons.music_note_list,
-                                              results: results!.playlists
-                                                  .sublist(0, math.min(results!.playlists.length, topShowCount))
-                                                  .map((e) => SearchPlaylistTile(e))
-                                                  .toList(),
-                                              index: 3,
-                                              pageController: _pageController,
-                                              tabController: _tabController,
-                                            );
-
-                                          case 3:
-                                            return TopResultContainer(
-                                              kind: "Artists",
-                                              icon: CupertinoIcons.person,
-                                              results: results!.artists
-                                                  .sublist(0, math.min(results!.artists.length, topShowCount))
-                                                  .map((e) => SearchArtistTile(e))
-                                                  .toList(),
-                                              index: 4,
-                                              pageController: _pageController,
-                                              tabController: _tabController,
-                                            );
-                                        }
-
-                                        return const SizedBox();
-                                      },
-                                    ),
-                                  );
-                                } else {
-                                  switch (pageIndex) {
-                                    case 1:
-                                      return CupertinoScrollbar(
-                                        child: ListView.builder(
-                                          itemCount: (results?.tracks.length ?? 0).clamp(1, 50) + 1,
-                                          itemBuilder: (context, index) {
-                                            if (index == results!.tracks.length) {
-                                              return const SizedBox(height: 100);
-                                            }
-
-                                            if (results?.tracks.isEmpty ?? true) {
-                                              return noResultsWidget;
-                                            }
-
-                                            return SearchTrackTile(results!.tracks[index]);
-                                          },
-                                        ),
-                                      );
-                                    case 2:
-                                      return CupertinoScrollbar(
-                                        child: ListView.builder(
-                                          itemCount: (results?.albums.length ?? 0).clamp(1, 50) + 1,
-                                          itemBuilder: (context, index) {
-                                            if (index == results!.albums.length) {
-                                              return const SizedBox(height: 100);
-                                            }
-
-                                            if (results?.albums.isEmpty ?? true) {
-                                              return noResultsWidget;
-                                            }
-
-                                            return SearchAlbumTile(results!.albums[index]);
-                                          },
-                                        ),
-                                      );
-                                    case 3:
-                                      return CupertinoScrollbar(
-                                        child: ListView.builder(
-                                          itemCount: (results?.playlists.length ?? 0).clamp(1, 50) + 1,
-                                          itemBuilder: (context, index) {
-                                            if (index == results!.playlists.length) {
-                                              return const SizedBox(height: 100);
-                                            }
-
-                                            if (results?.playlists.isEmpty ?? true) {
-                                              return noResultsWidget;
-                                            }
-
-                                            return SearchPlaylistTile(results!.playlists[index]);
-                                          },
-                                        ),
-                                      );
-                                    case 4:
-                                      return CupertinoScrollbar(
-                                        child: ListView.builder(
-                                          itemCount: (results?.artists.length ?? 0).clamp(1, 50) + 1,
-                                          itemBuilder: (context, index) {
-                                            if (index == results!.artists.length) {
-                                              return const SizedBox(height: 100);
-                                            }
-
-                                            if (results?.artists.isEmpty ?? true) {
-                                              return noResultsWidget;
-                                            }
-
-                                            return SearchArtistTile(results!.artists[index]);
-                                          },
-                                        ),
-                                      );
-                                  }
+                        return CachedOpacity(
+                          type: results?.type,
+                          child: NotificationListener<ScrollNotification>(
+                            onNotification: (notification) {
+                              // from flutter source
+                              if (notification is ScrollUpdateNotification && !_tabController.indexIsChanging) {
+                                if ((_pageController.page! - _tabController.index).abs() > 1.0) {
+                                  _tabController.index = _pageController.page!.floor();
                                 }
+                                _tabController.offset = (_pageController.page! - _tabController.index).clamp(-1.0, 1.0);
+                              } else if (notification is ScrollEndNotification) {
+                                _tabController.index = _pageController.page!.round();
+                                if (!_tabController.indexIsChanging) {
+                                  _tabController.offset = (_pageController.page! - _tabController.index).clamp(-1.0, 1.0);
+                                }
+                              }
+                              return false;
+                            },
+                            child: PageView.custom(
+                              controller: _pageController,
+                              childrenDelegate: SliverChildBuilderDelegate(
+                                (BuildContext context, int pageIndex) {
+                                  if (pageIndex == 0) {
+                                    return CupertinoScrollbar(
+                                      child: ListView.builder(
+                                        itemCount: 5,
+                                        itemBuilder: (context, index) {
+                                          if (index == 4) {
+                                            return const SizedBox(height: 100);
+                                          }
 
-                                return null;
-                              },
-                              childCount: 5,
-                              findChildIndexCallback: (Key key) {
-                                final ValueKey<String> valueKey = key as ValueKey<String>;
-                                final String data = valueKey.value;
-                                return listOrder.indexOf(data);
-                              },
+                                          const topShowCount = 3;
+
+                                          switch (index) {
+                                            case 0:
+                                              return TopResultContainer(
+                                                kind: "Songs",
+                                                icon: CupertinoIcons.music_note_2,
+                                                results: results!.item?.tracks
+                                                        .sublist(0, math.min(results!.item!.tracks.length, topShowCount))
+                                                        .map((e) => SearchTrackTile(e))
+                                                        .toList() ??
+                                                    [],
+                                                index: 1,
+                                                pageController: _pageController,
+                                                tabController: _tabController,
+                                              );
+
+                                            case 1:
+                                              return TopResultContainer(
+                                                kind: "Albums",
+                                                icon: CupertinoIcons.music_albums,
+                                                results: results!.item?.albums
+                                                        .sublist(0, math.min(results!.item!.albums.length, topShowCount))
+                                                        .map((e) => SearchAlbumTile(e))
+                                                        .toList() ??
+                                                    [],
+                                                index: 2,
+                                                pageController: _pageController,
+                                                tabController: _tabController,
+                                              );
+
+                                            case 2:
+                                              return TopResultContainer(
+                                                kind: "Playlists",
+                                                icon: CupertinoIcons.music_note_list,
+                                                results: results!.item?.playlists
+                                                        .sublist(0, math.min(results!.item!.playlists.length, topShowCount))
+                                                        .map((e) => SearchPlaylistTile(e))
+                                                        .toList() ??
+                                                    [],
+                                                index: 3,
+                                                pageController: _pageController,
+                                                tabController: _tabController,
+                                              );
+
+                                            case 3:
+                                              return TopResultContainer(
+                                                kind: "Artists",
+                                                icon: CupertinoIcons.person,
+                                                results: results!.item?.artists
+                                                        .sublist(0, math.min(results!.item!.artists.length, topShowCount))
+                                                        .map((e) => SearchArtistTile(e))
+                                                        .toList() ??
+                                                    [],
+                                                index: 4,
+                                                pageController: _pageController,
+                                                tabController: _tabController,
+                                              );
+                                          }
+
+                                          return const SizedBox();
+                                        },
+                                      ),
+                                    );
+                                  } else {
+                                    switch (pageIndex) {
+                                      case 1:
+                                        return CupertinoScrollbar(
+                                          child: ListView.builder(
+                                            itemCount: (results!.item?.tracks.length ?? 0).clamp(1, 50) + 1,
+                                            itemBuilder: (context, index) {
+                                              if (index == results!.item?.tracks.length) {
+                                                return const SizedBox(height: 100);
+                                              }
+
+                                              if (results?.item?.tracks.isEmpty ?? true) {
+                                                return noResultsWidget;
+                                              }
+
+                                              return SearchTrackTile(results!.item!.tracks[index]);
+                                            },
+                                          ),
+                                        );
+                                      case 2:
+                                        return CupertinoScrollbar(
+                                          child: ListView.builder(
+                                            itemCount: (results!.item?.albums.length ?? 0).clamp(1, 50) + 1,
+                                            itemBuilder: (context, index) {
+                                              if (index == results!.item?.albums.length) {
+                                                return const SizedBox(height: 100);
+                                              }
+
+                                              if (results?.item?.albums.isEmpty ?? true) {
+                                                return noResultsWidget;
+                                              }
+
+                                              return SearchAlbumTile(results!.item!.albums[index]);
+                                            },
+                                          ),
+                                        );
+                                      case 3:
+                                        return CupertinoScrollbar(
+                                          child: ListView.builder(
+                                            itemCount: (results!.item?.playlists.length ?? 0).clamp(1, 50) + 1,
+                                            itemBuilder: (context, index) {
+                                              if (index == results!.item?.playlists.length) {
+                                                return const SizedBox(height: 100);
+                                              }
+
+                                              if (results!.item?.playlists.isEmpty ?? true) {
+                                                return noResultsWidget;
+                                              }
+
+                                              return SearchPlaylistTile(results!.item!.playlists[index]);
+                                            },
+                                          ),
+                                        );
+                                      case 4:
+                                        return CupertinoScrollbar(
+                                          child: ListView.builder(
+                                            itemCount: (results!.item?.artists.length ?? 0).clamp(1, 50) + 1,
+                                            itemBuilder: (context, index) {
+                                              if (index == results!.item?.artists.length) {
+                                                return const SizedBox(height: 100);
+                                              }
+
+                                              if (results?.item?.artists.isEmpty ?? true) {
+                                                return noResultsWidget;
+                                              }
+
+                                              return SearchArtistTile(results!.item!.artists[index]);
+                                            },
+                                          ),
+                                        );
+                                    }
+                                  }
+
+                                  return null;
+                                },
+                                childCount: 5,
+                                findChildIndexCallback: (Key key) {
+                                  final ValueKey<String> valueKey = key as ValueKey<String>;
+                                  final String data = valueKey.value;
+                                  return listOrder.indexOf(data);
+                                },
+                              ),
+                              physics: const PageScrollPhysics().applyTo(const BouncingScrollPhysics()),
                             ),
-                            physics: const PageScrollPhysics().applyTo(const BouncingScrollPhysics()),
                           ),
                         );
                     }

@@ -5,6 +5,9 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:tearmusic/api/base_api.dart';
 import 'package:tearmusic/api/music_api.dart';
 import 'package:tearmusic/models/batch.dart';
+import 'package:tearmusic/models/storage/cached_item.dart';
+import 'package:tearmusic/models/storage/music_storage_manager.dart';
+import 'package:tearmusic/models/storage/storage.dart';
 import 'package:tearmusic/models/library.dart';
 import 'package:tearmusic/models/manual_match.dart';
 import 'package:tearmusic/models/model.dart';
@@ -15,230 +18,132 @@ import 'package:tearmusic/models/music/playlist.dart';
 import 'package:tearmusic/models/search.dart';
 import 'package:tearmusic/models/music/track.dart';
 import 'package:tearmusic/models/playback.dart';
+import 'package:tearmusic/models/storage/user_storage_manager.dart';
 
 class MusicInfoProvider {
-  MusicInfoProvider({required BaseApi base}) : _api = MusicApi(base: base);
+  MusicInfoProvider({required BaseApi base, required this.manager}) : _api = MusicApi(base: base);
 
   final MusicApi _api;
 
-  /// Box cache keys
-  /// List<MusicTrack> "tracks_$track"
-  /// List<MusicAlbum> "albums_$album"
-  /// List<MusicPlaylist> "playlists_$playlist"
-  /// List<MusicArtist> "artists_$artist"
-  late Box _store;
+  late MusicStorage manager;
 
   late String userId;
-
-  Future<void> init() async {
-    _store = await Hive.openBox("music_cache");
-    await _store.clear();
-  }
 
   Future<List<SearchSuggestion>> searchSuggest(String query) async {
     return await _api.searchSuggest(query);
   }
 
-  Future<SearchResults> search(String query) async {
-    SearchResults data;
-    final cacheKey = "search_results_$query";
-    final String? cache = _store.get(cacheKey);
-    if (cache != null) {
-      final json = jsonDecode(cache) as Map;
-      List<Map> tracks = [];
-      List<Map> albums = [];
-      List<Map> playlists = [];
-      List<Map> artists = [];
-      for (final id in json['tracks']) {
-        tracks.add(jsonDecode(_store.get("tracks_$id")));
-      }
-      for (final id in json['albums']) {
-        albums.add(jsonDecode(_store.get("albums_$id")));
-      }
-      for (final id in json['playlists']) {
-        playlists.add(jsonDecode(_store.get("playlists_$id")));
-      }
-      for (final id in json['artists']) {
-        artists.add(jsonDecode(_store.get("artists_$id")));
-      }
-      data = SearchResults.decode({
-        "tracks": tracks,
-        "albums": albums,
-        "playlists": playlists,
-        "artists": artists,
-      });
-      // Offline search
-      // } else if (no internet connection) {
-      //   final ids = _store.keys.where((k) => RegExp(r'^((:?tracks|albums|playlists|artists)_[a-zA-Z0-9:-]+)$').hasMatch(k)).cast<String>();
-      //   List<Map> tracks = [];
-      //   List<Map> albums = [];
-      //   List<Map> playlists = [];
-      //   List<Map> artists = [];
-      //   for (final id in ids.where((k) => k.startsWith("tracks"))) {
-      //     tracks.add(jsonDecode(_store.get(id)));
-      //   }
-      //   for (final id in ids.where((k) => k.startsWith("albums"))) {
-      //     albums.add(jsonDecode(_store.get(id)));
-      //   }
-      //   for (final id in ids.where((k) => k.startsWith("playlists"))) {
-      //     playlists.add(jsonDecode(_store.get(id)));
-      //   }
-      //   for (final id in ids.where((k) => k.startsWith("artists"))) {
-      //     artists.add(jsonDecode(_store.get(id)));
-      //   }
-      //   data = SearchResults.decodeFilter({
-      //     "tracks": tracks,
-      //     "albums": albums,
-      //     "playlists": playlists,
-      //     "artists": artists,
-      //   }, filter: query);
-    } else {
-      data = await _api.search(query);
-      _store.put(
-          cacheKey,
-          jsonEncode({
-            'tracks': Model.encodeIdList(data.tracks),
-            'albums': Model.encodeIdList(data.albums),
-            'playlists': Model.encodeIdList(data.playlists),
-            'artists': Model.encodeIdList(data.artists),
-          }));
-      for (final e in data.tracks) {
-        _store.put("tracks_$e", jsonEncode(e.encode()));
-      }
-      for (final e in data.albums) {
-        _store.put("albums_$e", jsonEncode(e.encode()));
-      }
-      for (final e in data.playlists) {
-        _store.put("playlists_$e", jsonEncode(e.encode()));
-      }
-      for (final e in data.artists) {
-        _store.put("artists_$e", jsonEncode(e.encode()));
-      }
-    }
-    return data;
+  Stream<CachedItem<SearchResults?>> search(String query) async* {
+    final soff = manager.search(query);
+    yield CachedItem(soff);
+    //log(soff.tracks.toString());
+    if (soff == null)
+      print("soff was empty");
+    else
+      print("soff: " + soff.tracks.toString());
+
+    final data = await _api.search(query);
+    manager.storeSearch(query, data);
+
+    yield CachedItem(data, type: CacheType.remote);
+
+    // Offline search
+    // } else if (no internet connection) {
+    //   final ids = _store.keys.where((k) => RegExp(r'^((:?tracks|albums|playlists|artists)_[a-zA-Z0-9:-]+)$').hasMatch(k)).cast<String>();
+    //   List<Map> tracks = [];
+    //   List<Map> albums = [];
+    //   List<Map> playlists = [];
+    //   List<Map> artists = [];
+    //   for (final id in ids.where((k) => k.startsWith("tracks"))) {
+    //     tracks.add(jsonDecode(_store.get(id)));
+    //   }
+    //   for (final id in ids.where((k) => k.startsWith("albums"))) {
+    //     albums.add(jsonDecode(_store.get(id)));
+    //   }
+    //   for (final id in ids.where((k) => k.startsWith("playlists"))) {
+    //     playlists.add(jsonDecode(_store.get(id)));
+    //   }
+    //   for (final id in ids.where((k) => k.startsWith("artists"))) {
+    //     artists.add(jsonDecode(_store.get(id)));
+    //   }
+    //   data = SearchResults.decodeFilter({
+    //     "tracks": tracks,
+    //     "albums": albums,
+    //     "playlists": playlists,
+    //     "artists": artists,
+    //   }, filter: query);
   }
 
-  Future<PlaylistDetails> playlistTracks(String playlistId) async {
-    PlaylistDetails data;
-    final cacheKey = "playlist_tracks_$playlistId";
-    final String? cache = _store.get(cacheKey);
-    if (cache != null) {
-      final json = jsonDecode(cache) as Map;
-      List<Map> tracks = (json['tracks'] as List).map((id) => jsonDecode(_store.get("tracks_$id"))).toList().cast();
-      log("[PQ] track cache found, fetched: ${tracks.map((e) => e['name'])}");
-      data = PlaylistDetails.decode({'tracks': tracks, 'followers': json['followers']});
-    } else {
-      data = await _api.playlistTracks(playlistId);
-      log("[PQ] track cache not found, fetched: ${data.tracks.map((e) => e.name)}");
-      _store.put(cacheKey, jsonEncode({'tracks': Model.encodeIdList(data.tracks), 'followers': data.followers}));
-      for (final e in data.tracks) {
-        _store.put("tracks_$e", jsonEncode(e.encode()));
-      }
-    }
-    return data;
+  Stream<CachedItem<PlaylistDetails?>> playlistTracks(String playlistId, {bool head = false}) async* {
+    yield CachedItem(manager.getPlaylistDetails(playlistId));
+
+    final data = await _api.playlistDetails(playlistId);
+    manager.storePlaylistDetails(data);
+
+    yield CachedItem(data, type: CacheType.remote);
   }
 
-  Future<List<MusicTrack>> albumTracks(String albumId) async {
-    List<MusicTrack> data = [];
-    final cacheKey = "album_tracks_$albumId";
-    final String? cache = _store.get(cacheKey);
-    if (cache != null) {
-      final json = jsonDecode(cache) as List;
-      data = MusicTrack.decodeList(json.map((id) => jsonDecode(_store.get("tracks_$id"))).toList().cast());
-    } else {
-      data = await _api.albumTracks(albumId);
-      _store.put(cacheKey, jsonEncode(Model.encodeIdList(data)));
-      for (final e in data) {
-        _store.put("tracks_$e", jsonEncode(e.encode()));
-      }
-    }
-    return data;
+  Stream<CachedItem<List<MusicTrack>?>> albumTracks(String albumId) async* {
+    yield CachedItem(manager.albumTracks(albumId));
+
+    final data = await _api.albumTracks(albumId);
+    manager.storeAlbumTracks(albumId, data);
+
+    yield CachedItem(data, type: CacheType.remote);
   }
 
-  Future<List<MusicAlbum>> newReleases() async {
-    List<MusicAlbum> data = [];
-    const cacheKey = "new_releases";
-    final String? cache = _store.get(cacheKey);
-    if (cache != null) {
-      final json = jsonDecode(cache) as List;
-      data = MusicAlbum.decodeList(json.map((id) => jsonDecode(_store.get("albums_$id"))).toList().cast());
-    } else {
-      data = await _api.newReleases();
-      _store.put(cacheKey, jsonEncode(Model.encodeIdList(data)));
-      for (final e in data) {
-        _store.put("albums_$e", jsonEncode(e.encode()));
-      }
-    }
-    return data;
+  Stream<CachedItem<List<MusicAlbum>?>> newReleases() async* {
+    yield CachedItem(manager.newReleases());
+
+    final data = await _api.newReleases();
+    manager.storeNewReleases(data);
+
+    yield CachedItem(data, type: CacheType.remote);
   }
 
-  Future<List<MusicAlbum>> artistAlbums(MusicArtist artist) async {
-    List<MusicAlbum> data;
-    final cacheKey = "artist_albums_$artist";
-    final String? cache = _store.get(cacheKey);
-    if (cache != null) {
-      final json = jsonDecode(cache) as List;
-      data = MusicAlbum.decodeList(json.map((id) => jsonDecode(_store.get("albums_$id"))).toList().cast());
-    } else {
-      data = await _api.artistAlbums(artist);
-      _store.put(cacheKey, jsonEncode(Model.encodeIdList(data)));
-      for (final e in data) {
-        _store.put("albums_$e", jsonEncode(e.encode()));
-      }
-    }
-    return data.toSet().toList();
+  Stream<CachedItem<ArtistDetails?>> artistDetails(MusicArtist artist) async* {
+    yield CachedItem(manager.artistDetails(artist.id));
+
+    final data = await _api.artistDetails(artist);
+    manager.storeArtistDetails(data);
+
+    yield CachedItem(data, type: CacheType.remote);
   }
 
-  Future<List<MusicTrack>> artistTracks(MusicArtist artist) async {
-    List<MusicTrack> data = [];
-    final cacheKey = "artist_tracks_$artist";
-    final String? cache = _store.get(cacheKey);
-    if (cache != null) {
-      final json = jsonDecode(cache) as List;
-      data = MusicTrack.decodeList(json.map((id) => jsonDecode(_store.get("tracks_$id"))).toList().cast());
-    } else {
-      data = await _api.artistTracks(artist);
-      _store.put(cacheKey, jsonEncode(Model.encodeIdList(data)));
-      for (final e in data) {
-        _store.put("tracks_$e", jsonEncode(e.encode()));
-      }
-    }
-    return data;
+  Stream<CachedItem<List<MusicAlbum>?>> artistAlbums(MusicArtist artist) async* {
+    yield CachedItem(manager.artistAlbums(artist.id));
+
+    final data = await _api.artistAlbums(artist);
+    manager.storeArtistAlbums(artist.id, data);
+
+    yield CachedItem(data, type: CacheType.remote);
   }
 
-  Future<List<MusicArtist>> artistRelated(MusicArtist artist) async {
-    List<MusicArtist> data = [];
-    final cacheKey = "artist_related_$artist";
-    final String? cache = _store.get(cacheKey);
-    if (cache != null) {
-      final json = jsonDecode(cache) as List;
-      data = MusicArtist.decodeList(json.map((id) => jsonDecode(_store.get("artists_$id"))).toList().cast());
-    } else {
-      data = await _api.artistRelated(artist);
-      _store.put(cacheKey, jsonEncode(Model.encodeIdList(data)));
-      for (final e in data) {
-        _store.put("artists_$e", jsonEncode(e.encode()));
-      }
-    }
-    return data;
+  Stream<CachedItem<List<MusicTrack>?>> artistTracks(MusicArtist artist) async* {
+    yield CachedItem(manager.artistTracks(artist.id));
+
+    final data = await _api.artistTracks(artist);
+    manager.storeArtistTracks(artist.id, data);
+
+    yield CachedItem(data, type: CacheType.remote);
   }
 
-  Future<ArtistDetails> artistDetails(MusicArtist artist) async {
-    return await _api.artistDetails(artist);
+  Stream<CachedItem<List<MusicArtist>?>> artistRelated(MusicArtist artist) async* {
+    yield CachedItem(manager.artistRelated(artist.id));
+
+    final data = await _api.artistRelated(artist);
+    manager.storeArtistRelated(artist.id, data);
+
+    yield CachedItem(data, type: CacheType.remote);
   }
 
-  Future<MusicLyrics> lyrics(MusicTrack track) async {
-    MusicLyrics data;
-    final cacheKey = "track_lyrics_$track";
-    final String? cache = _store.get(cacheKey);
-    if (cache != null) {
-      final json = jsonDecode(cache) as Map;
-      data = MusicLyrics.decode(json);
-    } else {
-      data = await _api.lyrics(track);
-      _store.put(cacheKey, jsonEncode(data.encode()));
-    }
-    return data;
+  Stream<CachedItem<MusicLyrics?>> lyrics(MusicTrack track) async* {
+    yield CachedItem(manager.trackLyrics(track.name));
+
+    final data = await _api.lyrics(track);
+    manager.storeTrackLyrics(track.id, data);
+
+    yield CachedItem(data, type: CacheType.remote);
   }
 
   Future<Playback> playback(MusicTrack track, {String? videoId}) async {
@@ -262,67 +167,79 @@ class MusicInfoProvider {
   }
 
   Future<List<MusicTrack>> batchTracks(List<String> idList) async {
-    //log("[Queue] fetching batch tracks: $idList");
+    List<MusicTrack> validTracks = idList.map((id) => manager.getTrack(id)).where((e) => e != null).map((e) => e!).toList();
+    List<String> invalidTracks = idList.where((id) => validTracks.map((e) => e.id).contains(id)).toList();
 
-    List<MusicTrack> tracks = [];
+    if (invalidTracks.isEmpty) return validTracks;
 
-    List<String> needToFetch = [];
-    for (var t in idList) {
-      //log("[Queue] checking: $t");
+    final data = await _api.batchTracks(invalidTracks);
 
-      final cacheKey = "tracks_$t";
-      final String? cache = _store.get(cacheKey);
-      if (cache != null) {
-        try {
-          tracks.add(MusicTrack.decode(jsonDecode(cache)));
-        } catch (e) {
-          //log("[Queue] cant decode $t");
-          needToFetch.add(t);
-        }
-      } else {
-        needToFetch.add(t);
-      }
+    for (final t in data) {
+      validTracks.add(t);
+      manager.storeTrack(t);
     }
 
-    //log("[Queue] batch tracks need to fetch: $needToFetch");
-
-    if (needToFetch.isNotEmpty) {
-      final data = await _api.batchTracks(needToFetch);
-
-      for (final t in data) {
-        tracks.add(t);
-        _store.put("tracks_$t", jsonEncode(t.encode()));
-      }
-    }
-
-    return tracks;
+    return validTracks;
   }
 
-  Future<BatchLibrary> libraryBatch(LibraryType type, {int limit = 10, int offset = 0}) async {
-    BatchLibrary data = await _api.libraryBatch(type, limit: limit, offset: offset);
+  Stream<CachedItem<List<MusicTrack>>> libraryLikedTracks({int limit = 10, int offset = 0}) async* {
+    yield CachedItem(manager.getLibraryBatch()?.tracks.reversed.take(limit).toList() ?? []);
 
-    if (type == LibraryType.liked_tracks) {
-      for (final e in data.tracks) {
-        _store.put("tracks_$e", jsonEncode(e.encode()));
-      }
-    } else if (type == LibraryType.track_history) {
-      for (final e in data.track_history) {
-        _store.put("tracks_$e", jsonEncode(e.encode()));
-      }
-    } else if (type == LibraryType.liked_albums) {
-      for (final e in data.albums) {
-        _store.put("albums_$e", jsonEncode(e.encode()));
-      }
-    } else if (type == LibraryType.liked_artists) {
-      for (final e in data.artists) {
-        _store.put("artists_$e", jsonEncode(e.encode()));
-      }
-    } else if (type == LibraryType.liked_playlists) {
-      for (final e in data.playlists) {
-        _store.put("playlists_$e", jsonEncode(e.encode()));
-      }
+    try {
+      BatchLibrary data = await _api.libraryBatch(LibraryType.liked_tracks, limit: limit, offset: offset);
+      manager.storeLibraryBatch(data);
+      yield CachedItem(data.tracks, type: CacheType.remote);
+    } catch (e, s) {
+      print("libraryLikedTracks throws: $e, $s");
     }
+  }
 
-    return data;
+  Stream<CachedItem<List<MusicArtist>>> libraryLikedArtists({int limit = 10, int offset = 0}) async* {
+    yield CachedItem(manager.getLibraryBatch()?.artists.reversed.take(limit).toList() ?? []);
+
+    try {
+      BatchLibrary data = await _api.libraryBatch(LibraryType.liked_artists, limit: limit, offset: offset);
+      manager.storeLibraryBatch(data);
+      yield CachedItem(data.artists, type: CacheType.remote);
+    } catch (e, s) {
+      print("libraryLikedArtists throws: $e, $s");
+    }
+  }
+
+  Stream<CachedItem<List<MusicPlaylist>>> libraryLikedPlaylists({int limit = 10, int offset = 0}) async* {
+    print("fetched first");
+    yield CachedItem(manager.getLibraryBatch()?.playlists.reversed.take(limit).toList() ?? []);
+
+    try {
+      BatchLibrary data = await _api.libraryBatch(LibraryType.liked_playlists, limit: limit, offset: offset);
+      manager.storeLibraryBatch(data);
+      yield CachedItem(data.playlists, type: CacheType.remote);
+    } catch (e, s) {
+      print("libraryLikedPlaylists throws: $e, $s");
+    }
+  }
+
+  Stream<CachedItem<List<MusicAlbum>>> libraryLikedAlbums({int limit = 10, int offset = 0}) async* {
+    yield CachedItem(manager.getLibraryBatch()?.albums.reversed.take(limit).toList() ?? []);
+
+    try {
+      BatchLibrary data = await _api.libraryBatch(LibraryType.liked_albums, limit: limit, offset: offset);
+      manager.storeLibraryBatch(data);
+      yield CachedItem(data.albums, type: CacheType.remote);
+    } catch (e, s) {
+      print("libraryLikedAlbums throws: $e, $s");
+    }
+  }
+
+  Stream<CachedItem<List<MusicTrack>>> libraryTrackHistory({int limit = 10, int offset = 0}) async* {
+    yield CachedItem(manager.getLibraryBatch()?.track_history.reversed.take(limit).map((e) => e.track).toList() ?? []);
+
+    try {
+      BatchLibrary data = await _api.libraryBatch(LibraryType.track_history, limit: limit, offset: offset);
+      manager.storeLibraryBatch(data);
+      yield CachedItem(data.track_history.map((e) => e.track).toList(), type: CacheType.remote);
+    } catch (e, s) {
+      print("libraryTrackHistory throws: $e, $s");
+    }
   }
 }

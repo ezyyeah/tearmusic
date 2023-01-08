@@ -98,7 +98,7 @@ class UserApi {
     final res = await http.post(
       Uri.parse("${MusicApi.baseUrl}/user/player-info?version=${playerInfo.version}&operations_version=${playerInfo.operationsVersion}"),
       headers: {"authorization": await base.getToken()},
-      body: {"operations": jsonEncode(playerInfo.operations)},
+      body: {"operations": jsonEncode("[{type: overwrite, new_normal_queue: []")},
     );
 
     log("syncPlayerOperations tried to sync: ${playerInfo.operations}");

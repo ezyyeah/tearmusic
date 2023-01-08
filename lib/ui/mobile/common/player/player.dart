@@ -630,8 +630,7 @@ class _PlayerState extends State<Player> with TickerProviderStateMixin {
                                       playbackIndicator = MultiProvider(
                                         key: const Key("ready"),
                                         providers: [
-                                          StreamProvider(
-                                              create: (_) => currentMusic.positionStream, initialData: currentMusic.position),
+                                          StreamProvider(create: (_) => currentMusic.positionStream, initialData: currentMusic.position),
                                           StreamProvider(create: (_) => currentMusic.isPlayingStream, initialData: currentMusic.isPlaying),
                                         ],
                                         builder: (context, snapshot) => Consumer2<bool, Duration>(
@@ -828,6 +827,7 @@ class _PlayerState extends State<Player> with TickerProviderStateMixin {
                                                 : (1 - bounceProgressValue)
                                             : 0.0)),
                                 child: TrackInfo(
+                                  id: currentMusic.playing?.id,
                                   artist: currentMusic.playing?.artistsLabel ?? "?",
                                   title: currentMusic.playing?.name ?? "?",
                                   p: bounceProgressValue,

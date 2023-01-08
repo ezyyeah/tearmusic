@@ -2,19 +2,21 @@ import 'package:automatic_animated_list/automatic_animated_list.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:tearmusic/models/model.dart';
+import 'package:tearmusic/models/storage/cached_item.dart';
+import 'package:tearmusic/models/storage/cached_opacity.dart';
 import 'package:tearmusic/ui/mobile/common/wallpaper.dart';
 
 typedef ContentListViewBuilder = Widget? Function(ValueWidgetBuilder)?;
 typedef ContentListViewItemBuilder<T> = Widget? Function(BuildContext, T);
-typedef ContentListViewRetriever<T> = Future<List<T>>? Function();
+typedef ContentListViewRetriever<T> = Stream<CachedItem<List<T>>>;
 
-class ContentListView<T extends Model> extends StatefulWidget {
+class ContentListView<T extends Model> extends StatelessWidget {
   const ContentListView({
     Key? key,
     this.title,
     this.emptyTitle,
     required this.loadingWidget,
-    required this.itemBuilder,
+    required this.viewItemBuilder,
     required this.retriever,
     this.builder,
   }) : super(key: key);
@@ -22,53 +24,51 @@ class ContentListView<T extends Model> extends StatefulWidget {
   final Widget? title;
   final Widget? emptyTitle;
   final Widget loadingWidget;
-  final ContentListViewItemBuilder<T> itemBuilder;
+  final ContentListViewItemBuilder<T> viewItemBuilder;
   final ContentListViewRetriever<T> retriever;
   final ContentListViewBuilder builder;
 
-  @override
-  State<ContentListView<T>> createState() => _ContentListViewState<T>();
-}
-
-class _ContentListViewState<T extends Model> extends State<ContentListView<T>> {
   Widget itemBuilder<U>(BuildContext context, U? value, Widget? child) {
     if ((value as List?)?.isEmpty ?? false) {
       return Padding(
         padding: const EdgeInsets.only(top: 6.0, bottom: 24.0),
         child: Center(
-          child: widget.emptyTitle,
+          child: emptyTitle,
         ),
       );
     }
 
-    return FutureBuilder<List<T>>(
-      future: widget.retriever(),
+    return StreamBuilder<CachedItem<List<T>>>(
+      stream: retriever,
       builder: ((context, snapshot) {
-        if (!snapshot.hasData) {
-          return widget.loadingWidget;
+        if (snapshot.data?.item == null) {
+          return loadingWidget;
         }
 
-        final List<T> items = snapshot.data!;
+        final List<T> items = snapshot.data!.item;
 
-        return AutomaticAnimatedList<T>(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          items: items,
-          keyingFunction: (item) => Key(item.id),
-          itemBuilder: (BuildContext context, T item, Animation<double> animation) {
-            return FadeTransition(
-              key: Key(item.id),
-              opacity: animation,
-              child: SizeTransition(
-                sizeFactor: CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.easeOut,
-                  reverseCurve: Curves.easeIn,
+        return CachedOpacity(
+          type: snapshot.data?.type,
+          child: AutomaticAnimatedList<T>(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            items: items,
+            keyingFunction: (item) => Key(item.id),
+            itemBuilder: (BuildContext context, T item, Animation<double> animation) {
+              return FadeTransition(
+                key: Key(item.id),
+                opacity: animation,
+                child: SizeTransition(
+                  sizeFactor: CurvedAnimation(
+                    parent: animation,
+                    curve: Curves.easeOut,
+                    reverseCurve: Curves.easeIn,
+                  ),
+                  child: viewItemBuilder(context, item),
                 ),
-                child: widget.itemBuilder(context, item),
-              ),
-            );
-          },
+              );
+            },
+          ),
         );
       }),
     );
@@ -86,10 +86,10 @@ class _ContentListViewState<T extends Model> extends State<ContentListView<T>> {
                 floating: false,
                 pinned: true,
                 snap: false,
-                title: widget.title,
+                title: title,
               ),
               SliverToBoxAdapter(
-                child: widget.builder != null ? widget.builder!(itemBuilder) : itemBuilder(context, null, null),
+                child: builder != null ? builder!(itemBuilder) : itemBuilder(context, null, null),
               ),
               const SliverToBoxAdapter(
                 child: SafeArea(

@@ -12,40 +12,32 @@ import 'package:tearmusic/models/library.dart';
 import 'package:tearmusic/models/model.dart';
 import 'package:tearmusic/models/music/track.dart';
 import 'package:tearmusic/models/player_info.dart';
+import 'package:tearmusic/models/storage/cached_item.dart';
+import 'package:tearmusic/models/storage/user_storage_manager.dart';
 import 'package:tearmusic/providers/current_music_provider.dart';
 import 'package:tearmusic/providers/music_info_provider.dart';
 
 class UserProvider extends ChangeNotifier {
-  UserProvider({required BaseApi base, required MusicInfoProvider musicInfo})
+  UserProvider({required BaseApi base, required UserStorage userSM, required MusicInfoProvider musicInfo})
       : _api = UserApi(base: base),
-        _musicInfoProvider = musicInfo;
+        _musicInfoProvider = musicInfo,
+        _manager = userSM;
 
   void setCurrentMusicProvider(CurrentMusicProvider currentMusicProvider) {
     _currentMusicProvider = currentMusicProvider;
   }
 
   Future<void> init() async {
-    _store = await Hive.openBox("user");
-    _username = _store.get("username");
-    _avatar = _store.get("avatar");
-    _id = _store.get("id");
+    _username = _manager.getUserName();
+    _avatar = _manager.getAvatar();
+    _id = _manager.getId();
 
-    try {
-      final stLibrary = _store.get("library");
-      if (stLibrary != null) library = UserLibrary.decode(jsonDecode(stLibrary));
-    } catch (e) {
-      log("Library decode error: $e");
-    }
+    library = _manager.getLibrary();
+    PlayerInfo? playerInfoRes = _manager.getPlayerInfo();
+    if (playerInfoRes != null) playerInfo = playerInfoRes;
 
-    //try {
-    final stPlayerInfo = _store.get("player_info");
-    if (stPlayerInfo != null) playerInfo = PlayerInfo.decode(jsonDecode(stPlayerInfo));
-    // } catch (e) {
-    //   log("Player Info decode error: $e");
-    // }
-
-    String? accessToken = _store.get("access_token");
-    String? refreshToken = _store.get("refresh_token");
+    final accessToken = _manager.getAccessToken();
+    final refreshToken = _manager.getRefreshToken();
 
     _api.base.refreshCallback = loginCallback;
     _api.base.setAuth(accessToken, refreshToken);
@@ -57,8 +49,8 @@ class UserProvider extends ChangeNotifier {
     if (loggedIn) _getUser();
   }
 
-  late Box _store;
   final UserApi _api;
+  final UserStorage _manager;
   final MusicInfoProvider _musicInfoProvider;
   late final CurrentMusicProvider _currentMusicProvider;
 
@@ -78,13 +70,14 @@ class UserProvider extends ChangeNotifier {
   Future<void> logoutCallback() async {
     _api.base.destroyToken();
 
-    _store.delete("username");
-    _store.delete("avatar");
-    _store.delete("access_token");
-    _store.delete("refresh_token");
-    _store.delete("library");
-    _store.delete("player_info");
+    _manager.deleteField("username");
+    _manager.deleteField("avatar");
+    _manager.deleteField("access_token");
+    _manager.deleteField("refresh_token");
+    _manager.deleteField("library");
+    _manager.deleteField("player_info");
 
+    // TODO: do this in cacheDataManager (musicStorage)
     final cacheBox = await Hive.openBox("cached_images");
     cacheBox.clear();
 
@@ -96,8 +89,8 @@ class UserProvider extends ChangeNotifier {
   Future<void> loginCallback(String? accessToken, String? refreshToken) async {
     if (accessToken == null || refreshToken == null) return;
 
-    _store.put("access_token", accessToken);
-    _store.put("refresh_token", refreshToken);
+    _manager.storeAccessToken(accessToken);
+    _manager.storeRefreshToken(refreshToken);
 
     _api.base.setAuth(accessToken, refreshToken);
     notifyListeners();
@@ -118,26 +111,28 @@ class UserProvider extends ChangeNotifier {
 
       _musicInfoProvider.userId = _id ?? "";
 
-      _store.put("username", _username);
-      _store.put("avatar", _avatar);
-      _store.put("id", _id);
-      _store.put("library", jsonEncode(library!.encode()));
+      _manager.storeUserName(_username!);
+      _manager.storeAvatar(_avatar!);
+      _manager.storeId(_id!);
+      _manager.storeLibrary(library!);
 
       await matchPlayerInfo();
-      _store.put("player_info", jsonEncode(playerInfo.encode()));
+      _manager.storePlayerInfo(playerInfo);
+      notifyListeners();
     } on AuthException {
       loggedIn = false;
       notifyListeners();
     }
   }
 
-  Future<UserLibrary> getLibrary() async {
-    if (library == null) {
-      library = await _api.getLibrary();
-      _store.put("library", jsonEncode(library!.encode()));
-    }
+  Stream<CachedItem<UserLibrary?>> getLibrary() async* {
+    yield CachedItem(_manager.getLibrary());
 
-    return library!;
+    library = await _api.getLibrary();
+    // TODO: if returned value was null, user login info was wrong, fix that case (logout or etc)
+    _manager.storeLibrary(library!);
+
+    yield CachedItem(library, type: CacheType.remote);
   }
 
   Future<void> putLibrary(Model model, LibraryType type, {String? fromId, String? fromType}) async {
@@ -170,14 +165,12 @@ class UserProvider extends ChangeNotifier {
     }
 
     await _api.putLibrary(id, type);
-    _store.put("library", jsonEncode(library!.encode()));
+    _manager.storeLibrary(library!);
 
     notifyListeners();
   }
 
-  Future<void> deleteLibrary(Model model, LibraryType type) async {
-    await getLibrary();
-
+  Future<void> removeFromLibrary(Model model, LibraryType type) async {
     final id = model.id;
 
     switch (type) {
@@ -202,7 +195,7 @@ class UserProvider extends ChangeNotifier {
     }
 
     await _api.deleteLibrary(id, type);
-    _store.put("library", jsonEncode(library!.encode()));
+    _manager.storeLibrary(library!);
 
     notifyListeners();
   }
@@ -217,6 +210,8 @@ class UserProvider extends ChangeNotifier {
   }
 
   Future<void> matchPlayerInfo() async {
+    return;
+
     log("[Player] matchPlayerInfo all queued tracks: ${getAllTracks()}");
 
     // caching tracks
@@ -278,6 +273,8 @@ class UserProvider extends ChangeNotifier {
   }
 
   void _stackPlayerOperation(Map body, int newVersion) {
+    return;
+
     if (playerInfo.operations.isEmpty) {
       playerInfo.operationsVersion = playerInfo.version;
     }
@@ -285,7 +282,8 @@ class UserProvider extends ChangeNotifier {
     log("[Player] operation version is: ${playerInfo.operationsVersion} - new version is: $newVersion");
     playerInfo.operations.add(body);
 
-    _store.put("player_info", jsonEncode(playerInfo.encode()));
+    //_store.put("player_info", jsonEncode(playerInfo.encode()));
+    _manager.storePlayerInfo(playerInfo);
 
     //log("[Player] starting operations sync timer with operations: ${playerInfo.operations}");
 
@@ -301,6 +299,8 @@ class UserProvider extends ChangeNotifier {
   }
 
   Future<void> syncPlayerOperations() async {
+    return;
+
     final isSuccess = await _api.syncPlayerOperations(playerInfo);
 
     log("[Player] ${isSuccess ? 'Success to' : 'Failed to'} sync player operations: ${playerInfo.operations}");
@@ -314,7 +314,8 @@ class UserProvider extends ChangeNotifier {
       postOverwrite(playerInfo.version);
     }
 
-    _store.put("player_info", jsonEncode(playerInfo.encode()));
+    //_store.put("player_info", jsonEncode(playerInfo.encode()));
+    _manager.storePlayerInfo(playerInfo);
   }
 
   void postAdd(String id, int newVersion, {PlayerInfoPostType whereTo = PlayerInfoPostType.normal, bool fromPrimary = false, bool toStart = false}) {
@@ -471,15 +472,16 @@ class UserProvider extends ChangeNotifier {
   }
 
   Future<void> newQueue(PlayerInfoSourceType type, {String? id, bool wantSeed = true, playFirst = true}) async {
+    return;
     int? seed;
     if (wantSeed) seed = randomBetween(10000, 99999);
 
     List<MusicTrack> tracks = [];
 
     if (type == PlayerInfoSourceType.playlist) {
-      tracks = (await _musicInfoProvider.playlistTracks(id!)).tracks;
+      // this later: tracks = (await _musicInfoProvider.playlistTracks(id!)).tracks;
     } else if (type == PlayerInfoSourceType.album) {
-      tracks = (await _musicInfoProvider.albumTracks(id!));
+      // this later: tracks = (await _musicInfoProvider.albumTracks(id!));
     } else if (type == PlayerInfoSourceType.radio) {
       return;
     }

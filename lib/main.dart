@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:tearmusic/models/storage/music_storage_manager.dart';
+import 'package:tearmusic/models/storage/storage.dart';
+import 'package:tearmusic/models/storage/user_storage_manager.dart';
 import 'firebase_options.dart';
 import 'package:tearmusic/api/base_api.dart';
 import 'package:tearmusic/providers/current_music_provider.dart';
@@ -26,9 +29,15 @@ void main() async {
 
   // Create Providers
   final baseApi = BaseApi();
-  final musicInfoProvider = MusicInfoProvider(base: baseApi);
 
-  final userProvider = UserProvider(base: baseApi, musicInfo: musicInfoProvider);
+  await StorageManager.instance.init();
+
+  final userStorage = UserStorage();
+  final cacheDataStorage = MusicStorage(userSM: userStorage);
+
+  final musicInfoProvider = MusicInfoProvider(base: baseApi, manager: cacheDataStorage);
+
+  final userProvider = UserProvider(base: baseApi, userSM: userStorage, musicInfo: musicInfoProvider);
   final currentMusicProvider = CurrentMusicProvider();
   userProvider.setCurrentMusicProvider(currentMusicProvider);
 
@@ -56,7 +65,6 @@ void main() async {
 
   // Initialize providers
   await userProvider.init();
-  await musicInfoProvider.init();
   await currentMusicProvider.init();
 
   final providers = [

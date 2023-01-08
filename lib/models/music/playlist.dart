@@ -50,11 +50,11 @@ class PlaylistDetails extends Model {
     required this.followers,
   }) : super(id: id, json: json, type: "playlistextras");
 
-  factory PlaylistDetails.decode(Map json) {
+  factory PlaylistDetails.decode(Map json, String playlistId) {
     final tracks = MusicTrack.decodeList((json['tracks'] as List).cast<Map>());
     return PlaylistDetails(
       json: json,
-      id: tracks.map((e) => e.id).join(","),
+      id: playlistId,
       tracks: tracks,
       followers: json['followers'] ?? 0,
     );

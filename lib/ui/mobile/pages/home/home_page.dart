@@ -3,6 +3,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:tearmusic/models/music/album.dart';
+import 'package:tearmusic/models/storage/cached_item.dart';
+import 'package:tearmusic/models/storage/cached_opacity.dart';
 import 'package:tearmusic/providers/music_info_provider.dart';
 import 'package:tearmusic/providers/user_provider.dart';
 import 'package:tearmusic/ui/mobile/common/profile_button.dart';
@@ -62,36 +64,39 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               Expanded(
-                child: FutureBuilder<List<MusicAlbum>>(
-                  future: context.read<MusicInfoProvider>().newReleases(),
+                child: StreamBuilder(
+                  stream: context.read<MusicInfoProvider>().newReleases(),
                   builder: (context, snapshot) {
-                    return PageTransitionSwitcher(
-                      transitionBuilder: (child, primaryAnimation, secondaryAnimation) {
-                        return SharedAxisTransition(
-                          fillColor: Colors.transparent,
-                          animation: primaryAnimation,
-                          secondaryAnimation: secondaryAnimation,
-                          transitionType: SharedAxisTransitionType.vertical,
-                          child: child,
-                        );
-                      },
-                      child: !snapshot.hasData
-                          ? const Align(
-                              alignment: Alignment.topCenter,
-                              child: TrackLoadingTile(itemCount: 8),
-                            )
-                          : CupertinoScrollbar(
-                              child: ListView.builder(
-                                itemCount: snapshot.data!.length + 1,
-                                itemBuilder: (context, index) {
-                                  if (index == snapshot.data!.length) {
-                                    return const SizedBox(height: 100);
-                                  }
+                    return CachedOpacity(
+                      type: snapshot.data?.type,
+                      child: PageTransitionSwitcher(
+                        transitionBuilder: (child, primaryAnimation, secondaryAnimation) {
+                          return SharedAxisTransition(
+                            fillColor: Colors.transparent,
+                            animation: primaryAnimation,
+                            secondaryAnimation: secondaryAnimation,
+                            transitionType: SharedAxisTransitionType.vertical,
+                            child: child,
+                          );
+                        },
+                        child: snapshot.data?.item == null
+                            ? const Align(
+                                alignment: Alignment.topCenter,
+                                child: TrackLoadingTile(itemCount: 8),
+                              )
+                            : CupertinoScrollbar(
+                                child: ListView.builder(
+                                  itemCount: snapshot.data!.item!.length + 1,
+                                  itemBuilder: (context, index) {
+                                    if (index == snapshot.data!.item!.length) {
+                                      return const SizedBox(height: 100);
+                                    }
 
-                                  return SearchAlbumTile(snapshot.data![index]);
-                                },
+                                    return SearchAlbumTile(snapshot.data!.item![index]);
+                                  },
+                                ),
                               ),
-                            ),
+                      ),
                     );
                   },
                 ),
