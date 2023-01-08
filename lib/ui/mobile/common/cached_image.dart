@@ -80,31 +80,15 @@ class _CachedImageState extends State<CachedImage> {
                     );
                   },
                   child: snapshot.hasData
-                      ? widget.cacheHighest
-                          ? Stack(
-                              children: [
-                                if (constraints.biggest.height < (widget.images?.minSize.height ?? 0) + 5)
-                                  Image.memory(
-                                    snapshot.data!,
-                                    fit: BoxFit.cover,
-                                    width: constraints.maxWidth,
-                                    height: constraints.maxHeight,
-                                  ),
-                                if (highestImageBytes != null && constraints.biggest.height > (widget.images?.minSize.height ?? 0))
-                                  Image.memory(
-                                    highestImageBytes,
-                                    fit: BoxFit.cover,
-                                    width: constraints.maxWidth,
-                                    height: constraints.maxHeight,
-                                  ),
-                              ],
-                            )
-                          : Image.memory(
-                              snapshot.data!,
-                              fit: BoxFit.cover,
-                              width: constraints.maxWidth,
-                              height: constraints.maxHeight,
-                            )
+                      ? Transform.scale(
+                          scale: 1.1,
+                          child: Image.memory(
+                            snapshot.data!,
+                            fit: BoxFit.cover,
+                            width: constraints.maxWidth,
+                            height: constraints.maxHeight,
+                          ),
+                        )
                       : SizedBox(
                           width: constraints.maxWidth,
                           height: constraints.maxHeight,
